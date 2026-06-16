@@ -1,0 +1,96 @@
+name: Sidecar Release
+
+on:
+  push:
+    tags:
+      - "sidecar-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的 sidecar tag，必须以 sidecar-v 开头；留空时仅允许 tag 触发自动取当前 tag"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows-sidecar:
+    name: Windows cockpit-cliproxy sidecar
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecars/cockpit-cliproxy/go.mod
+          cache-dependency-path: |
+            sidecars/cockpit-cliproxy/go.sum
+            sidecars/cockpit-cliproxy/cdk/CLIProxyAPI/go.sum
+
+      - name: 计算发布 tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag }}"
+          if [ -z "$tag" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+          fi
+          if [[ "$tag" != sidecar-v* ]]; then
+            echo "发布 tag 必须以 sidecar-v 开头，当前值：${tag:-空}"
+            exit 1
+          fi
+          echo "SIDECAR_TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: 测试 Codex 转换包
+        shell: bash
+        working-directory: sidecars/cockpit-cliproxy/cdk/CLIProxyAPI
+        run: go test ./internal/translator/codex/claude
+
+      - name: 测试 sidecar
+        shell: bash
+        working-directory: sidecars/cockpit-cliproxy
+        run: go test ./...
+
+      - name: 构建 Windows sidecar
+        shell: bash
+        working-directory: sidecars/cockpit-cliproxy
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w" -o dist/cockpit-cliproxy.exe .
+          cd dist
+          sha256sum cockpit-cliproxy.exe > SHA256SUMS.txt
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: cockpit-cliproxy-windows
+          if-no-files-found: error
+          path: |
+            sidecars/cockpit-cliproxy/dist/cockpit-cliproxy.exe
+            sidecars/cockpit-cliproxy/dist/SHA256SUMS.txt
+
+      - name: 发布 GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes="仅包含 Windows 版 cockpit-cliproxy.exe sidecar。"
+          if gh release view "$SIDECAR_TAG" >/dev/null 2>&1; then
+            gh release upload "$SIDECAR_TAG" \
+              sidecars/cockpit-cliproxy/dist/cockpit-cliproxy.exe \
+              sidecars/cockpit-cliproxy/dist/SHA256SUMS.txt \
+              --clobber
+          else
+            gh release create "$SIDECAR_TAG" \
+              sidecars/cockpit-cliproxy/dist/cockpit-cliproxy.exe \
+              sidecars/cockpit-cliproxy/dist/SHA256SUMS.txt \
+              --target "$GITHUB_SHA" \
+              --title "Cockpit Cliproxy $SIDECAR_TAG" \
+              --notes "$notes"
+          fi
