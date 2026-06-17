@@ -580,15 +580,13 @@ func normalizeCodexToolCallPairs(payload []byte) []byte {
 		return payload
 	}
 
-	callIDs := map[string]struct{}{}
+	hasFunctionCall := false
 	outputIDs := map[string]struct{}{}
 	input.ForEach(func(_, item gjson.Result) bool {
 		callID := strings.TrimSpace(item.Get("call_id").String())
 		switch item.Get("type").String() {
 		case "function_call":
-			if callID != "" {
-				callIDs[callID] = struct{}{}
-			}
+			hasFunctionCall = true
 		case "function_call_output":
 			if callID != "" {
 				outputIDs[callID] = struct{}{}
@@ -596,7 +594,7 @@ func normalizeCodexToolCallPairs(payload []byte) []byte {
 		}
 		return true
 	})
-	if len(callIDs) == 0 && len(outputIDs) == 0 {
+	if !hasFunctionCall {
 		return payload
 	}
 
@@ -605,22 +603,12 @@ func normalizeCodexToolCallPairs(payload []byte) []byte {
 	input.ForEach(func(_, item gjson.Result) bool {
 		itemType := item.Get("type").String()
 		callID := strings.TrimSpace(item.Get("call_id").String())
-		switch itemType {
-		case "function_call":
+		if itemType == "function_call" {
 			if callID == "" {
 				changed = true
 				return true
 			}
 			if _, ok := outputIDs[callID]; !ok {
-				changed = true
-				return true
-			}
-		case "function_call_output":
-			if callID == "" {
-				changed = true
-				return true
-			}
-			if _, ok := callIDs[callID]; !ok {
 				changed = true
 				return true
 			}
