@@ -259,7 +259,7 @@ func TestConvertClaudeRequestToCodex_DropsOnlyUnansweredParallelToolUse(t *testi
 	assertStringSliceEqual(t, outputIDs, []string{"toolu_done"})
 }
 
-func TestConvertClaudeRequestToCodex_DropsOrphanToolResult(t *testing.T) {
+func TestConvertClaudeRequestToCodex_PreservesOrphanToolResultForReplayCache(t *testing.T) {
 	inputJSON := `{
 		"model": "claude-3-opus",
 		"messages": [
@@ -273,7 +273,7 @@ func TestConvertClaudeRequestToCodex_DropsOrphanToolResult(t *testing.T) {
 	callIDs, outputIDs := collectRequestToolCallIDs(result)
 
 	assertStringSliceEqual(t, callIDs, nil)
-	assertStringSliceEqual(t, outputIDs, nil)
+	assertStringSliceEqual(t, outputIDs, []string{"toolu_orphan"})
 }
 
 func TestConvertClaudeRequestToCodex_ToolChoiceModeMapping(t *testing.T) {
